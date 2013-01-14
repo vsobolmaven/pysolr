@@ -19,12 +19,11 @@ Features
 Requirements
 ============
 
-* Python 2.4+ (tested under Python 2.6+)
-* **Optional** - ``lxml`` (Python 2.4.X and below)
-* **Optional** - ``simplejson`` (Python 2.5.X and below)
-* **Optional** - ``httplib2`` for timeout support
+* Python 2.6-3.3
+* Requests 1.0+
+* **Optional** - ``lxml``
+* **Optional** - ``simplejson``
 * **Optional** - ``BeautifulSoup`` for Tomcat error support
-* **Optional** - ``poster`` for Solr rich content extraction
 
 
 Installation
@@ -32,6 +31,24 @@ Installation
 
 ``sudo python setup.py install`` or drop the ``pysolr.py`` file anywhere on your
 PYTHONPATH.
+
+
+Usage
+=====
+
+Basic usage looks like::
+
+    # If on Python 2.X
+    from __future__ import print_function
+    import pysolr
+
+    solr = pysolr.Solr('http://localhost:8983/solr/')
+    results = solr.search('bananas')
+
+    print("Saw {0} result(s).".format(len(results)))
+
+    for result in results:
+        print("The title is '{0}'.".format(result['title'])
 
 
 LICENSE
