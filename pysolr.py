@@ -2,14 +2,13 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from datetime import datetime
+import datetime
 import logging
 import re
 import requests
 import time
 import types
 import urllib
-from urlparse import urlsplit, urlunsplit
 
 try:
     # Prefer lxml, if installed.
@@ -28,10 +27,28 @@ except ImportError:
 
 try:
     # Python 3.X
+    from urllib.parse import urlsplit, urlunsplit, urlencode
+except ImportError:
+    # Python 2.X
+    from urlparse import urlsplit, urlunsplit
+    from urllib import urlencode
+
+try:
+    # Python 3.X
     import html.entities as htmlentities
 except ImportError:
     # Python 2.X
-    import htmlentitydefs
+    import htmlentitydefs as htmlentities
+
+try:
+    # Python 2.X
+    unicode_char = unichr
+except NameError:
+    # Python 3.X
+    unicode_char = chr
+    # I do NOT feel good about doing this. :/
+    unicode = str
+    basestring = str
 
 
 __author__ = 'Daniel Lindsley, Joseph Kocherhans, Jacob Kaplan-Moss'
@@ -79,15 +96,15 @@ def unescape_html(text):
             # character reference
             try:
                 if text[:3] == "&#x":
-                    return unichr(int(text[3:-1], 16))
+                    return unicode_char(int(text[3:-1], 16))
                 else:
-                    return unichr(int(text[2:-1]))
+                    return unicode_char(int(text[2:-1]))
             except ValueError:
                 pass
         else:
             # named entity
             try:
-                text = unichr(htmlentities.name2codepoint[text[1:-1]])
+                text = unicode_char(htmlentities.name2codepoint[text[1:-1]])
             except KeyError:
                 pass
         return text # leave as is
@@ -116,7 +133,7 @@ def safe_urlencode(params, doseq=0):
         else:
             new_params.append((k, unicode(v)))
 
-    return urllib.urlencode(new_params, doseq)
+    return urlencode(new_params, doseq)
 
 
 class SolrError(Exception):
@@ -387,7 +404,7 @@ class Solr(object):
                 for dk, dv in date_values.items():
                     date_values[dk] = int(dv)
 
-                return datetime(date_values['year'], date_values['month'], date_values['day'], date_values['hour'], date_values['minute'], date_values['second'])
+                return datetime.datetime(date_values['year'], date_values['month'], date_values['day'], date_values['hour'], date_values['minute'], date_values['second'])
 
         try:
             # This is slightly gross but it's hard to tell otherwise what the
@@ -627,8 +644,7 @@ class Solr(object):
             :metadata:
                         key:value pairs of text strings
         """
-        if not POSTER_AVAILABLE:
-            raise RuntimeError("Solr rich content extraction requires `poster` to be installed")
+        # FIXME: Maybe remove this? Not sure how Requests behaves...
 
         # The poster library unfortunately defaults to mime-type None when
         # the file lacks a name and that causes it to send the file contents
@@ -783,35 +799,35 @@ class SolrCoreAdmin(object):
 # Using two-tuples to preserve order.
 REPLACEMENTS = (
     # Nuke nasty control characters.
-    ('\x00', ''), # Start of heading
-    ('\x01', ''), # Start of heading
-    ('\x02', ''), # Start of text
-    ('\x03', ''), # End of text
-    ('\x04', ''), # End of transmission
-    ('\x05', ''), # Enquiry
-    ('\x06', ''), # Acknowledge
-    ('\x07', ''), # Ring terminal bell
-    ('\x08', ''), # Backspace
-    ('\x0b', ''), # Vertical tab
-    ('\x0c', ''), # Form feed
-    ('\x0e', ''), # Shift out
-    ('\x0f', ''), # Shift in
-    ('\x10', ''), # Data link escape
-    ('\x11', ''), # Device control 1
-    ('\x12', ''), # Device control 2
-    ('\x13', ''), # Device control 3
-    ('\x14', ''), # Device control 4
-    ('\x15', ''), # Negative acknowledge
-    ('\x16', ''), # Synchronous idle
-    ('\x17', ''), # End of transmission block
-    ('\x18', ''), # Cancel
-    ('\x19', ''), # End of medium
-    ('\x1a', ''), # Substitute character
-    ('\x1b', ''), # Escape
-    ('\x1c', ''), # File separator
-    ('\x1d', ''), # Group separator
-    ('\x1e', ''), # Record separator
-    ('\x1f', ''), # Unit separator
+    (b'\x00', ''), # Start of heading
+    (b'\x01', ''), # Start of heading
+    (b'\x02', ''), # Start of text
+    (b'\x03', ''), # End of text
+    (b'\x04', ''), # End of transmission
+    (b'\x05', ''), # Enquiry
+    (b'\x06', ''), # Acknowledge
+    (b'\x07', ''), # Ring terminal bell
+    (b'\x08', ''), # Backspace
+    (b'\x0b', ''), # Vertical tab
+    (b'\x0c', ''), # Form feed
+    (b'\x0e', ''), # Shift out
+    (b'\x0f', ''), # Shift in
+    (b'\x10', ''), # Data link escape
+    (b'\x11', ''), # Device control 1
+    (b'\x12', ''), # Device control 2
+    (b'\x13', ''), # Device control 3
+    (b'\x14', ''), # Device control 4
+    (b'\x15', ''), # Negative acknowledge
+    (b'\x16', ''), # Synchronous idle
+    (b'\x17', ''), # End of transmission block
+    (b'\x18', ''), # Cancel
+    (b'\x19', ''), # End of medium
+    (b'\x1a', ''), # Substitute character
+    (b'\x1b', ''), # Escape
+    (b'\x1c', ''), # File separator
+    (b'\x1d', ''), # Group separator
+    (b'\x1e', ''), # Record separator
+    (b'\x1f', ''), # Unit separator
 )
 
 def sanitize(data):
