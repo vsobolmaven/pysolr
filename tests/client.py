@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+import datetime
+
 try:
     import unittest2 as unittest
 except ImportError:
     import unittest
 
 
-from pysolr import Solr, Results, SolrError, unescape_html, safe_urlencode, sanitize
+from pysolr import Solr, Results, SolrError, unescape_html, safe_urlencode, sanitize, json
 
 
 class UtilsTestCase(unittest.TestCase):
@@ -80,5 +82,87 @@ class ResultsTestCase(unittest.TestCase):
 
 
 class SolrTestCase(unittest.TestCase):
+    def setUp(self):
+        super(SolrTestCase, self).setUp()
+        self.solr = Solr('http://localhost:9001/solr/pysolr_tests')
+
     def test_init(self):
-        pass
+        simple_solr = Solr('http://localhost:8983/solr')
+        self.assertEqual(simple_solr.url, 'http://localhost:8983/solr')
+        self.assertTrue(isinstance(simple_solr.decoder, json.JSONDecoder))
+        self.assertEqual(simple_solr.scheme, 'http')
+        self.assertEqual(simple_solr.base_url, 'http://localhost:8983')
+        self.assertEqual(simple_solr.host, 'localhost')
+        self.assertEqual(simple_solr.port, 8983)
+        self.assertEqual(simple_solr.path, '/solr')
+        self.assertEqual(simple_solr.timeout, 60)
+
+    def test__send_request(self):
+        self.fail()
+
+    def test__select(self):
+        self.fail()
+
+    def test__mlt(self):
+        self.fail()
+
+    def test__suggest_terms(self):
+        self.fail()
+
+    def test__update(self):
+        self.fail()
+
+    def test__extract_error(self):
+        self.fail()
+
+    def test__scrape_response(self):
+        self.fail()
+
+    def test__from_python(self):
+        self.assertEqual(self.solr._from_python(datetime.date(2013, 1, 18)), '2013-01-18T00:00:00Z')
+        self.assertEqual(self.solr._from_python(datetime.datetime(2013, 1, 18, 0, 30, 28)), '2013-01-18T00:30:28Z')
+        self.assertEqual(self.solr._from_python(True), 'true')
+        self.assertEqual(self.solr._from_python(False), 'false')
+        self.assertEqual(self.solr._from_python(1), '1')
+        self.assertEqual(self.solr._from_python(1.2), '1.2')
+        self.assertEqual(self.solr._from_python(b'hello'), 'hello')
+        self.assertEqual(self.solr._from_python('hello ☃'), 'hello ☃')
+
+    def test__to_python(self):
+        self.assertEqual(self.solr._to_python('2013-01-18T00:00:00Z'), datetime.datetime(2013, 1, 18))
+        self.assertEqual(self.solr._to_python('2013-01-18T00:30:28Z'), datetime.datetime(2013, 1, 18, 0, 30, 28))
+        self.assertEqual(self.solr._to_python('true'), True)
+        self.assertEqual(self.solr._to_python('false'), False)
+        self.assertEqual(self.solr._to_python(1), 1)
+        self.assertEqual(self.solr._to_python(1.2), 1.2)
+        self.assertEqual(self.solr._to_python(b'hello'), 'hello')
+        self.assertEqual(self.solr._to_python('hello ☃'), 'hello ☃')
+        self.assertEqual(self.solr._to_python(['foo', 'bar']), 'foo')
+        self.assertEqual(self.solr._to_python(('foo', 'bar')), 'foo')
+
+    def test__is_null_value(self):
+        self.fail()
+
+    def test_search(self):
+        self.fail()
+
+    def test_more_like_this(self):
+        self.fail()
+
+    def test_suggest_terms(self):
+        self.fail()
+
+    def test_add(self):
+        self.fail()
+
+    def test_delete(self):
+        self.fail()
+
+    def test_commit(self):
+        self.fail()
+
+    def test_optimize(self):
+        self.fail()
+
+    def test_extract(self):
+        self.fail()
