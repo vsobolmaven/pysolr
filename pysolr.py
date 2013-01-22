@@ -690,7 +690,6 @@ class Solr(object):
             # We'll provide the file using its true name as Tika may use that
             # as a file type hint:
             resp = self._send_request('post', "update/extract",
-                                      body="".join(body_generator),
                                       headers=params,
                                       files={'file': (file_obj.name, file_obj)})
         except (IOError, SolrError) as err:
