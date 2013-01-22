@@ -165,27 +165,29 @@ class Solr(object):
     def __init__(self, url, decoder=None, timeout=60):
         self.decoder = decoder or json.JSONDecoder()
         self.url = url
-        self.scheme, netloc, path, query, fragment = urlsplit(url)
-        self.base_url = urlunsplit((self.scheme, netloc, '', '', ''))
-        netloc = netloc.split(':')
-        self.host = netloc[0]
-        if len(netloc) == 1:
-            self.host, self.port = netloc[0], None
-        else:
-            self.host, self.port = netloc[0], int(netloc[1])
-        self.path = path.rstrip('/')
         self.timeout = timeout
         self.log = self._get_log()
 
     def _get_log(self):
         return LOG
 
-    def _send_request(self, method, path, body=None, headers=None):
-        url = self.base_url + path
+    def _create_full_url(self, path=''):
+        if len(path):
+            return '/'.join([self.url, path.lstrip('/')])
+
+        # No path? No problem.
+        return self.url
+
+    def _send_request(self, method, path='', body=None, headers=None):
+        url = self._create_full_url(path)
         method = method.lower()
+        log_body = body
+
+        if log_body is None:
+            log_body = ''
 
         self.log.debug("Starting request to '%s' (%s) with body '%s'...",
-                       url, method, body[:10])
+                       url, method, log_body[:10])
         start_time = time.time()
 
         try:
@@ -200,14 +202,14 @@ class Solr(object):
             self.log.error(error_message, [url, err], exc_info=True)
             raise SolrError(error_message % [url, err])
         except requests.exceptions.ConnectionError as err:
-            error_message = "Failed to connect to server at '%s'. Are you sure '%s' is correct? Checking it in a browser might help: %s"
-            params = (url, self.base_url, err)
+            error_message = "Failed to connect to server at '%s', are you sure that URL is correct? Checking it in a browser might help: %s"
+            params = (url, err)
             self.log.error(error_message, *params, exc_info=True)
             raise SolrError(error_message % params)
 
         end_time = time.time()
         self.log.info("Finished '%s' (%s) with body '%s' in %0.3f seconds.",
-                      url, method, body[:10], end_time - start_time)
+                      url, method, log_body[:10], end_time - start_time)
 
         if int(resp.status_code) != 200:
             error_message = self._extract_error(resp)
@@ -224,29 +226,31 @@ class Solr(object):
 
         if len(params_encoded) < 1024:
             # Typical case.
-            path = '%s/select/?%s' % (self.path, params_encoded)
+            path = 'select/?%s' % params_encoded
             return self._send_request('get', path)
         else:
             # Handles very long queries by submitting as a POST.
-            path = '%s/select/' % (self.path,)
+            path = 'select/'
             headers = {
                 'Content-type': 'application/x-www-form-urlencoded; charset=utf-8',
             }
             return self._send_request('post', path, body=params_encoded, headers=headers)
 
     def _mlt(self, params):
-        params['wt'] = 'json' # specify json encoding of results
-        path = '%s/mlt/?%s' % (self.path, safe_urlencode(params, True))
+        # specify json encoding of results
+        params['wt'] = 'json'
+        path = 'mlt/?%s' % safe_urlencode(params, True)
         return self._send_request('get', path)
 
     def _suggest_terms(self, params):
-        params['wt'] = 'json' # specify json encoding of results
-        path = '%s/terms/?%s' % (self.path, safe_urlencode(params, True))
+        # specify json encoding of results
+        params['wt'] = 'json'
+        path = 'terms/?%s' % safe_urlencode(params, True)
         return self._send_request('get', path)
 
     def _update(self, message, clean_ctrl_chars=True, commit=True, waitFlush=None, waitSearcher=None):
         """
-        Posts the given xml message to http://<host>:<port>/solr/update and
+        Posts the given xml message to http://<self.url>/update and
         returns the result.
 
         Passing `sanitize` as False will prevent the message from being cleaned
@@ -254,21 +258,24 @@ class Solr(object):
         these characters would cause Solr to fail to parse the XML. Only pass
         False if you're positive your data is clean.
         """
-        path = '%s/update/' % self.path
+        path = 'update/'
 
         # Per http://wiki.apache.org/solr/UpdateXmlMessages, we can append a
         # ``commit=true`` to the URL and have the commit happen without a
         # second request.
         query_vars = []
+
         if commit is not None:
             query_vars.append('commit=%s' % str(bool(commit)).lower())
+
         if waitFlush is not None:
             query_vars.append('waitFlush=%s' % str(bool(waitFlush)).lower())
+
         if waitSearcher is not None:
             query_vars.append('waitSearcher=%s' % str(bool(waitSearcher)).lower())
+
         if query_vars:
             path = '%s?%s' % (path, '&'.join(query_vars))
-
 
         # Clean the message of ctrl characters.
         if clean_ctrl_chars:
@@ -305,9 +312,7 @@ class Solr(object):
             server_type = 'jetty'
 
         if server_string and 'coyote' in server_string.lower():
-            # FIXME: During the pysolr 3 effort, make this no longer a
-            #       conditional and consider using ``lxml.html`` instead.
-            from BeautifulSoup import BeautifulSoup
+            import lxml.html
             server_type = 'tomcat'
 
         reason = None
@@ -316,18 +321,19 @@ class Solr(object):
 
         if server_type == 'tomcat':
             # Tomcat doesn't produce a valid XML response
-            soup = BeautifulSoup(response)
+            soup = lxml.html.fromstring(response)
             body_node = soup.find('body')
-            p_nodes = body_node.findAll('p')
+            p_nodes = body_node.cssselect('p')
 
             for p_node in p_nodes:
-                children = p_node.findChildren()
+                children = p_node.getchildren()
 
-                if len(children) >= 2 and 'message' in children[0].renderContents().lower():
-                    reason = children[1].renderContents()
+                if len(children) >= 2 and 'message' in children[0].text.lower():
+                    reason = children[1].text
 
             if reason is None:
-                full_html = soup.prettify()
+                from lxml.html.clean import clean_html
+                full_html = clean_html(response)
         else:
             # Let's assume others do produce a valid XML response
             try:
@@ -613,12 +619,11 @@ class Solr(object):
 
     def optimize(self, waitFlush=None, waitSearcher=None, maxSegments=None):
         if maxSegments:
-            msg = '<commit maxSegments="%d" />' % maxSegments
+            msg = '<optimize maxSegments="%d" />' % maxSegments
         else:
-            msg = '<commit />'
+            msg = '<optimize />'
 
-        # FIXME: WHA? The ``msg`` isn't being used?
-        return self._update('<optimize />', waitFlush=waitFlush, waitSearcher=waitSearcher)
+        return self._update(msg, waitFlush=waitFlush, waitSearcher=waitSearcher)
 
     def extract(self, file_obj, extractOnly=True, **kwargs):
         """
@@ -644,12 +649,6 @@ class Solr(object):
             :metadata:
                         key:value pairs of text strings
         """
-        # FIXME: Maybe remove this? Not sure how Requests behaves...
-
-        # The poster library unfortunately defaults to mime-type None when
-        # the file lacks a name and that causes it to send the file contents
-        # as a gigantic string rather than a separate MIME part, which breaks
-        # and spews the contents in the Solr request log:
         if not hasattr(file_obj, "name"):
             raise ValueError("extract() requires file-like objects which have a defined name property")
 
@@ -657,18 +656,16 @@ class Solr(object):
             "extractOnly": "true" if extractOnly else "false",
             "lowernames": "true",
             "wt": "json",
-            # We'll provide the file using its true name as Tika may use that
-            # as a file type hint:
-            file_obj.name: file_obj,
         }
         params.update(kwargs)
 
-        # FIXME: Replace with the way Requests handles things.
-        body_generator, headers = multipart_encode(params)
-
         try:
-            resp = self._send_request('post', "%s/update/extract" % self.path,
-                                      "".join(body_generator), headers)
+            # We'll provide the file using its true name as Tika may use that
+            # as a file type hint:
+            resp = self._send_request('post', "update/extract",
+                                      body="".join(body_generator),
+                                      headers=params,
+                                      files={'file': (file_obj.name, file_obj)})
         except (IOError, SolrError) as err:
             self.log.error("Failed to extract document metadata: %s", err,
                            exc_info=True)
@@ -693,7 +690,6 @@ class Solr(object):
                 metadata[raw_metadata.pop()] = raw_metadata.pop()
 
         return data
-
 
 
 class SolrCoreAdmin(object):
@@ -757,19 +753,6 @@ class SolrCoreAdmin(object):
         """http://wiki.apache.org/solr/CoreAdmin#head-9473bee1abed39e8583ba45ef993bebb468e3afe"""
         params = {
             'action': 'RENAME',
-            'core': core,
-            'other': other,
-        }
-        return self._get_url(self.url, params=params)
-
-    def alias(self, core, other):
-        """
-        http://wiki.apache.org/solr/CoreAdmin#head-8bf9004eaa4d86af23d2758aafb0d31e2e8fe0d2
-
-        Experimental feature in Solr 1.3
-        """
-        params = {
-            'action': 'ALIAS',
             'core': core,
             'other': other,
         }

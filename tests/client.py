@@ -2,14 +2,12 @@
 from __future__ import unicode_literals
 
 import datetime
+from pysolr import Solr, Results, SolrError, unescape_html, safe_urlencode, sanitize, json
 
 try:
     import unittest2 as unittest
 except ImportError:
     import unittest
-
-
-from pysolr import Solr, Results, SolrError, unescape_html, safe_urlencode, sanitize, json
 
 
 class UtilsTestCase(unittest.TestCase):
@@ -84,39 +82,153 @@ class ResultsTestCase(unittest.TestCase):
 class SolrTestCase(unittest.TestCase):
     def setUp(self):
         super(SolrTestCase, self).setUp()
-        self.solr = Solr('http://localhost:9001/solr/pysolr_tests')
+        self.default_solr = Solr('http://localhost:8983/solr/core0')
+        # Short timeouts.
+        self.solr = Solr('http://localhost:8983/solr/core0', timeout=2)
+        self.docs = [
+            {
+                'id': 'doc_1',
+                'title': 'Example doc 1',
+                'price': 12.59,
+                'popularity': 10,
+            },
+            {
+                'id': 'doc_2',
+                'title': 'Another example doc 2',
+                'price': 13.69,
+                'popularity': 7,
+            },
+            {
+                'id': 'doc_3',
+                'title': 'Another thing',
+                'price': 2.35,
+                'popularity': 8,
+            },
+            {
+                'id': 'doc_4',
+                'title': 'doc rock',
+                'price': 99.99,
+                'popularity': 10,
+            },
+            {
+                'id': 'doc_5',
+                'title': 'Boring',
+                'price': 1.12,
+                'popularity': 2,
+            },
+        ]
+
+        # Clear it.
+        self.solr.delete(q='*:*')
+
+        # Index our docs. Yes, this leans on functionality we're going to test
+        # later & if it's broken, everything will catastrophically fail.
+        # Such is life.
+        self.solr.add(self.docs)
+
+    def tearDown(self):
+        self.solr.delete(q='*:*')
+        super(SolrTestCase, self).tearDown()
 
     def test_init(self):
-        simple_solr = Solr('http://localhost:8983/solr')
-        self.assertEqual(simple_solr.url, 'http://localhost:8983/solr')
-        self.assertTrue(isinstance(simple_solr.decoder, json.JSONDecoder))
-        self.assertEqual(simple_solr.scheme, 'http')
-        self.assertEqual(simple_solr.base_url, 'http://localhost:8983')
-        self.assertEqual(simple_solr.host, 'localhost')
-        self.assertEqual(simple_solr.port, 8983)
-        self.assertEqual(simple_solr.path, '/solr')
-        self.assertEqual(simple_solr.timeout, 60)
+        self.assertEqual(self.default_solr.url, 'http://localhost:8983/solr/core0')
+        self.assertTrue(isinstance(self.default_solr.decoder, json.JSONDecoder))
+        self.assertEqual(self.default_solr.timeout, 60)
+
+        self.assertEqual(self.solr.url, 'http://localhost:8983/solr/core0')
+        self.assertTrue(isinstance(self.solr.decoder, json.JSONDecoder))
+        self.assertEqual(self.solr.timeout, 2)
+
+    def test__create_full_url(self):
+        # Nada.
+        self.assertEqual(self.solr._create_full_url(path=''), 'http://localhost:8983/solr/core0')
+        # Basic path.
+        self.assertEqual(self.solr._create_full_url(path='pysolr_tests'), 'http://localhost:8983/solr/core0/pysolr_tests')
+        # Leading slash (& making sure we don't touch the trailing slash).
+        self.assertEqual(self.solr._create_full_url(path='/pysolr_tests/select/?whatever=/'), 'http://localhost:8983/solr/core0/pysolr_tests/select/?whatever=/')
 
     def test__send_request(self):
-        self.fail()
+        # Test a valid request.
+        resp_body = self.solr._send_request('GET', 'select/?q=doc&wt=json')
+        self.assertTrue('"numFound":3' in resp_body)
+
+        # Test a lowercase method & a body.
+        xml_body = '<add><doc><field name="id">doc_12</field><field name="title">Whee!</field></doc></add>'
+        resp_body = self.solr._send_request('POST', 'update/?commit=true', body=xml_body, headers={
+            'Content-type': 'text/xml; charset=utf-8',
+        })
+        self.assertTrue('<int name="status">0</int>' in resp_body)
+
+        # Test a non-existent URL.
+        old_url = self.solr.url
+        self.solr.url = 'http://127.0.0.1:567898/wahtever'
+        self.assertRaises(SolrError, self.solr._send_request, 'get', 'select/?q=doc&wt=json')
+        self.solr.url = old_url
 
     def test__select(self):
-        self.fail()
+        # Short params.
+        resp_body = self.solr._select({'q': 'doc'})
+        resp_data = json.loads(resp_body)
+        self.assertEqual(resp_data['response']['numFound'], 3)
+
+        # Long params.
+        resp_body = self.solr._select({'q': 'doc' * 1024})
+        resp_data = json.loads(resp_body)
+        self.assertEqual(resp_data['response']['numFound'], 0)
+        self.assertEqual(len(resp_data['responseHeader']['params']['q']), 3 * 1024)
 
     def test__mlt(self):
-        self.fail()
+        resp_body = self.solr._mlt({'q': 'id:doc_1', 'mlt.fl': 'title'})
+        resp_data = json.loads(resp_body)
+        self.assertEqual(resp_data['response']['numFound'], 0)
 
     def test__suggest_terms(self):
-        self.fail()
+        resp_body = self.solr._select({'terms.fl': 'title'})
+        resp_data = json.loads(resp_body)
+        self.assertEqual(resp_data['response']['numFound'], 0)
 
     def test__update(self):
-        self.fail()
+        xml_body = '<add><doc><field name="id">doc_12</field><field name="title">Whee!</field></doc></add>'
+        resp_body = self.solr._update(xml_body)
+        self.assertTrue('<int name="status">0</int>' in resp_body)
 
     def test__extract_error(self):
-        self.fail()
+        class RubbishResponse(object):
+            def __init__(self, content, headers=None):
+                self.content = content
+                self.headers = headers
+
+                if self.headers is None:
+                    self.headers = {}
+
+        # Just the reason.
+        resp_1 = RubbishResponse("We don't care.", {'reason': 'Something went wrong.'})
+        self.assertEqual(self.solr._extract_error(resp_1), "[Reason: Something went wrong.]")
+
+        # Empty reason.
+        resp_2 = RubbishResponse("We don't care.", {'reason': None})
+        self.assertEqual(self.solr._extract_error(resp_2), "[Reason: None]\nWe don't care.")
+
+        # No reason. Time to scrape.
+        resp_3 = RubbishResponse('<html><body><pre>Something is broke.</pre></body></html>', {'server': 'jetty'})
+        self.assertEqual(self.solr._extract_error(resp_3), "[Reason: Something is broke.]")
 
     def test__scrape_response(self):
-        self.fail()
+        # Tomcat.
+        resp_1 = self.solr._scrape_response({'server': 'coyote'}, '<html><body><p><span>Error message</span><span>messed up.</span></p></body></html>')
+        self.assertEqual(resp_1, ('messed up.', ''))
+
+        # Jetty.
+        resp_2 = self.solr._scrape_response({'server': 'jetty'}, '<html><body><pre>Something is broke.</pre></body></html>')
+        self.assertEqual(resp_2, ('Something is broke.', u''))
+
+        # Broken Tomcat.
+        resp_3 = self.solr._scrape_response({'server': 'coyote'}, '<html><body><p>Really broken. Scraping Java-generated HTML sucks.</pre></body></html>')
+        self.assertEqual(resp_3, (None, u'<div><body><p>Really broken. Scraping Java-generated HTML sucks.</p></body></div>'))
+
+        # Other.
+        resp_4 = self.solr._scrape_response({'server': 'crapzilla'}, '<html><head><title>Wow. Seriously weird.</title></head><body><pre>Something is broke.</pre></body></html>')
+        self.assertEqual(resp_4, ('Wow. Seriously weird.', u''))
 
     def test__from_python(self):
         self.assertEqual(self.solr._from_python(datetime.date(2013, 1, 18)), '2013-01-18T00:00:00Z')
@@ -141,28 +253,112 @@ class SolrTestCase(unittest.TestCase):
         self.assertEqual(self.solr._to_python(('foo', 'bar')), 'foo')
 
     def test__is_null_value(self):
-        self.fail()
+        self.assertTrue(self.solr._is_null_value(None))
+        self.assertTrue(self.solr._is_null_value(''))
+
+        self.assertFalse(self.solr._is_null_value('Hello'))
+        self.assertFalse(self.solr._is_null_value(1))
 
     def test_search(self):
-        self.fail()
+        results = self.solr.search('doc')
+        self.assertEqual(len(results), 3)
+
+        results = self.solr.search('example')
+        self.assertEqual(len(results), 2)
+
+        results = self.solr.search('nothing')
+        self.assertEqual(len(results), 0)
+
+        # Advanced options.
+        results = self.solr.search('doc', **{
+            'debug': 'true',
+            'hl': 'true',
+            'hl.fragsize': 8,
+            'facet': 'on',
+            'facet.field': 'popularity',
+            'spellcheck': 'true',
+            'spellcheck.collate': 'true',
+            'spellcheck.count': 1,
+            # TODO: Can't get these working in my test setup.
+            # 'group': 'true',
+            # 'group.field': 'id',
+        })
+        self.assertEqual(len(results), 3)
+        self.assertTrue('explain' in results.debug)
+        self.assertEqual(results.highlighting, {u'doc_4': {}, u'doc_2': {}, u'doc_1': {}})
+        self.assertEqual(results.spellcheck, {})
+        self.assertEqual(results.facets['facet_fields']['popularity'], ['10', 2, '7', 1, '2', 0, '8', 0])
+        self.assertTrue(results.qtime is not None)
+        # TODO: Can't get these working in my test setup.
+        # self.assertEqual(results.grouped, '')
 
     def test_more_like_this(self):
-        self.fail()
+        results = self.solr.more_like_this('id:doc_1', 'text')
+        self.assertEqual(len(results), 0)
 
     def test_suggest_terms(self):
-        self.fail()
+        results = self.solr.suggest_terms('title', '')
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results, {'title': [('doc', 3), ('another', 2), ('example', 2), ('1', 1), ('2', 1), ('boring', 1), ('rock', 1), ('thing', 1)]})
 
     def test_add(self):
-        self.fail()
+        self.assertEqual(len(self.solr.search('doc')), 3)
+        self.assertEqual(len(self.solr.search('example')), 2)
+
+        self.solr.add([
+            {
+                'id': 'doc_6',
+                'title': 'Newly added doc',
+            },
+            {
+                'id': 'doc_7',
+                'title': 'Another example doc',
+            },
+        ])
+
+        self.assertEqual(len(self.solr.search('doc')), 5)
+        self.assertEqual(len(self.solr.search('example')), 3)
 
     def test_delete(self):
-        self.fail()
+        self.assertEqual(len(self.solr.search('doc')), 3)
+        self.solr.delete(id='doc_1')
+        self.assertEqual(len(self.solr.search('doc')), 2)
+        self.solr.delete(q='price:[0 TO 15]')
+        self.assertEqual(len(self.solr.search('doc')), 1)
+
+        self.assertEqual(len(self.solr.search('*:*')), 1)
+        self.solr.delete(q='*:*')
+        self.assertEqual(len(self.solr.search('*:*')), 0)
+
+        # Need at least one.
+        self.assertRaises(ValueError, self.solr.delete)
+        # Can't have both.
+        self.assertRaises(ValueError, self.solr.delete, id='foo', q='bar')
 
     def test_commit(self):
-        self.fail()
+        self.assertEqual(len(self.solr.search('doc')), 3)
+        self.solr.add([
+            {
+                'id': 'doc_6',
+                'title': 'Newly added doc',
+            }
+        ], commit=False)
+        self.assertEqual(len(self.solr.search('doc')), 3)
+        self.solr.commit()
+        self.assertEqual(len(self.solr.search('doc')), 4)
 
     def test_optimize(self):
-        self.fail()
+        # Make sure it doesn't blow up. Side effects are hard to measure. :/
+        self.assertEqual(len(self.solr.search('doc')), 3)
+        self.solr.add([
+            {
+                'id': 'doc_6',
+                'title': 'Newly added doc',
+            }
+        ], commit=False)
+        self.assertEqual(len(self.solr.search('doc')), 3)
+        self.solr.optimize()
+        self.assertEqual(len(self.solr.search('doc')), 4)
 
     def test_extract(self):
-        self.fail()
+        self.fail("Dear Chris, Please fix me. Love, pysolr")
