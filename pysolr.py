@@ -44,9 +44,6 @@ try:
 except NameError:
     # Python 3.X
     unicode_char = chr
-    # I do NOT feel good about doing this. :/
-    unicode = str
-    basestring = str
 
 
 __author__ = 'Daniel Lindsley, Joseph Kocherhans, Jacob Kaplan-Moss'
@@ -77,6 +74,17 @@ if False:
     LOG.setLevel(logging.DEBUG)
     stream = logging.StreamHandler()
     LOG.addHandler(stream)
+
+
+def is_py3():
+    try:
+        basestring
+        return False
+    except NameError:
+        return True
+
+
+IS_PY3 = is_py3()
 
 
 def unescape_html(text):
@@ -399,7 +407,16 @@ class Solr(object):
         elif value == 'false':
             return False
 
-        if isinstance(value, basestring):
+        is_string = False
+
+        if IS_PY3:
+            if isinstance(value, str):
+                is_string = True
+        else:
+            if isinstance(value, basestring):
+                is_string = True
+
+        if is_string == True:
             possible_datetime = DATETIME_REGEX.search(value)
 
             if possible_datetime:
@@ -432,8 +449,20 @@ class Solr(object):
         Criteria for this is based on values that shouldn't be included
         in the Solr ``add`` request at all.
         """
+        if value is None:
+            return True
+
+        if IS_PY3:
+            # Python 3.X
+            if isinstance(value, str) and len(value) == 0:
+                return True
+        else:
+            # Python 2.X
+            if isinstance(value, basestring) and len(value) == 0:
+                return True
+
         # TODO: This should probably be removed when solved in core Solr level?
-        return (value is None) or (isinstance(value, basestring) and len(value) == 0)
+        return False
 
     # API Methods ############################################################
 
