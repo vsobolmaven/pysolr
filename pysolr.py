@@ -8,7 +8,6 @@ import re
 import requests
 import time
 import types
-import urllib
 
 try:
     # Prefer lxml, if installed.
@@ -27,10 +26,9 @@ except ImportError:
 
 try:
     # Python 3.X
-    from urllib.parse import urlsplit, urlunsplit, urlencode
+    from urllib.parse import urlencode
 except ImportError:
     # Python 2.X
-    from urlparse import urlsplit, urlunsplit
     from urllib import urlencode
 
 try:
