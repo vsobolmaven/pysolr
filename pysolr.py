@@ -44,6 +44,8 @@ try:
 except NameError:
     # Python 3.X
     unicode_char = chr
+    # Ugh.
+    long = int
 
 
 __author__ = 'Daniel Lindsley, Joseph Kocherhans, Jacob Kaplan-Moss'
@@ -87,6 +89,30 @@ def is_py3():
 IS_PY3 = is_py3()
 
 
+def force_unicode(value):
+    if IS_PY3:
+        # Python 3.X
+        if isinstance(value, bytes):
+            value = value.decode('utf-8', errors='replace')
+    else:
+        # Python 2.X
+        if isinstance(value, str):
+            value = value.decode('utf-8', errors='replace')
+
+    return value
+
+
+def force_bytes(value):
+    if IS_PY3:
+        if isinstance(value, str):
+            value = value.encode('utf-8')
+    else:
+        if isinstance(value, unicode):
+            value = value.encode('utf-8')
+
+    return value
+
+
 def unescape_html(text):
     """
     Removes HTML or XML character references and entities from a text string.
@@ -124,6 +150,9 @@ def safe_urlencode(params, doseq=0):
     The stdlib safe_urlencode prior to Python 3.x chokes on UTF-8 values
     which can't fail down to ascii.
     """
+    if IS_PY3:
+        return urlencode(params, doseq)
+
     if hasattr(params, "items"):
         params = params.items()
 
@@ -132,12 +161,10 @@ def safe_urlencode(params, doseq=0):
     for k, v in params:
         k = k.encode("utf-8")
 
-        if isinstance(v, basestring):
-            new_params.append((k, v.encode("utf-8")))
-        elif isinstance(v, (list, tuple)):
-            new_params.append((k, [i.encode("utf-8") for i in v]))
+        if isinstance(v, (list, tuple)):
+            new_params.append((k, [force_bytes(i) for i in v]))
         else:
-            new_params.append((k, unicode(v)))
+            new_params.append((k, force_bytes(v)))
 
     return urlencode(new_params, doseq)
 
@@ -202,7 +229,20 @@ class Solr(object):
             raise SolrError("Unable to send HTTP method '{0}.".format(method))
 
         try:
-            resp = requests_method(url, data=body, headers=headers, timeout=self.timeout)
+            # Bytes all the way down.
+            # Except the ``url``. Requests on Py3 *really* wants that to be a
+            # string, not bytes.
+            bytes_body = body
+            bytes_headers = {}
+
+            if bytes_body is not None:
+                bytes_body = force_bytes(body)
+
+            if headers is not None:
+                for k, v in headers.items():
+                    bytes_headers[force_bytes(k)] = force_bytes(v)
+
+            resp = requests_method(url, data=bytes_body, headers=bytes_headers, timeout=self.timeout)
         except requests.exceptions.Timeout as err:
             error_message = "Connection to server '%s' timed out: %s"
             self.log.error(error_message, [url, err], exc_info=True)
@@ -223,7 +263,7 @@ class Solr(object):
                                                           'response': resp.content}})
             raise SolrError(error_message)
 
-        return resp.content
+        return force_unicode(resp.content)
 
     def _select(self, params):
         # specify json encoding of results
@@ -384,11 +424,17 @@ class Solr(object):
                 value = 'true'
             else:
                 value = 'false'
-        elif isinstance(value, str):
-            # FIXME: This is likely going to need some help to work under both 2.X & 3.X
-            value = unicode(value, errors='replace')
         else:
-            value = unicode(value)
+            if IS_PY3:
+                # Python 3.X
+                if isinstance(value, bytes):
+                    value = str(value, errors='replace')
+            else:
+                # Python 2.X
+                if isinstance(value, str):
+                    value = unicode(value, errors='replace')
+
+            value = "{0}".format(value)
 
         return value
 
@@ -410,9 +456,15 @@ class Solr(object):
         is_string = False
 
         if IS_PY3:
+            if isinstance(value, bytes):
+                value = force_unicode(value)
+
             if isinstance(value, str):
                 is_string = True
         else:
+            if isinstance(value, str):
+                value = force_unicode(value)
+
             if isinstance(value, basestring):
                 is_string = True
 
@@ -550,10 +602,10 @@ class Solr(object):
         #
         # in Solr 3.x the value of terms is a dict:
         #   {"field_name": ["dance",23,"dancers",10,"dancing",8,"dancer",6]}
-        if isinstance(terms, types.ListType):
+        if isinstance(terms, (list, tuple)):
             terms = dict(zip(terms[0::2], terms[1::2]))
 
-        for field, values in terms.iteritems():
+        for field, values in terms.items():
             tmp = list()
 
             while values:
@@ -563,6 +615,46 @@ class Solr(object):
 
         self.log.debug("Found '%d' Term suggestions results.", sum(len(j) for i, j in res.items()))
         return res
+
+    def _build_doc(self, doc, boost=None):
+        doc_elem = ET.Element('doc')
+
+        for key, value in doc.items():
+            if key == 'boost':
+                doc_elem.set('boost', force_unicode(value))
+                continue
+
+            # handle lists & tuples
+            if isinstance(value, (list, tuple)):
+                for bit in value:
+                    if self._is_null_value(value):
+                        continue
+
+                    if boost and bit in boost:
+                        boost[bit] = force_unicode(boost[bit])
+
+                        field = ET.Element('field', name=key, boost=boost[bit])
+                    else:
+                        field = ET.Element('field', name=key)
+
+                    field.text = self._from_python(bit)
+                    doc_elem.append(field)
+            # handle strings and unicode
+            else:
+                if self._is_null_value(value):
+                    continue
+
+                if boost and key in boost:
+                    boost[key] = force_unicode(boost[key])
+
+                    field = ET.Element('field', name=key, boost=boost[key])
+                else:
+                    field = ET.Element('field', name=key)
+
+                field.text = self._from_python(value)
+                doc_elem.append(field)
+
+        return doc_elem
 
     def add(self, docs, commit=True, boost=None, commitWithin=None, waitFlush=None, waitSearcher=None):
         """
@@ -577,48 +669,13 @@ class Solr(object):
             message.set('commitWithin', commitWithin)
 
         for doc in docs:
-            d = ET.Element('doc')
+            message.append(self._build_doc(doc, boost=boost))
 
-            for key, value in doc.items():
-                if key == 'boost':
-                    d.set('boost', str(value))
-                    continue
-
-                # handle lists, tuples, and other iterables
-                if hasattr(value, '__iter__'):
-                    for v in value:
-                        if self._is_null_value(value):
-                            continue
-
-                        if boost and v in boost:
-                            if not isinstance(boost, basestring):
-                                boost[v] = str(boost[v])
-
-                            f = ET.Element('field', name=key, boost=boost[v])
-                        else:
-                            f = ET.Element('field', name=key)
-
-                        f.text = self._from_python(v)
-                        d.append(f)
-                # handle strings and unicode
-                else:
-                    if self._is_null_value(value):
-                        continue
-
-                    if boost and key in boost:
-                        if not isinstance(boost, basestring):
-                            boost[key] = str(boost[key])
-
-                        f = ET.Element('field', name=key, boost=boost[key])
-                    else:
-                        f = ET.Element('field', name=key)
-
-                    f.text = self._from_python(value)
-                    d.append(f)
-
-            message.append(d)
-
+        # This returns a bytestring. Ugh.
         m = ET.tostring(message, encoding='utf-8')
+        # Convert back to Unicode please.
+        m = force_unicode(m)
+
         end_time = time.time()
         self.log.debug("Built add request of %s docs in %0.2f seconds.", len(docs), end_time - start_time)
         return self._update(m, commit=commit, waitFlush=waitFlush, waitSearcher=waitSearcher)
@@ -738,7 +795,7 @@ class SolrCoreAdmin(object):
 
     def _get_url(self, url, params={}, headers={}):
         resp = requests.get(url, data=safe_urlencode(params), headers=headers)
-        return resp.content
+        return force_unicode(resp.content)
 
     def status(self, core=None):
         """http://wiki.apache.org/solr/CoreAdmin#head-9be76f5a459882c5c093a7a1456e98bea7723953"""
@@ -808,41 +865,41 @@ class SolrCoreAdmin(object):
 # Using two-tuples to preserve order.
 REPLACEMENTS = (
     # Nuke nasty control characters.
-    (b'\x00', ''), # Start of heading
-    (b'\x01', ''), # Start of heading
-    (b'\x02', ''), # Start of text
-    (b'\x03', ''), # End of text
-    (b'\x04', ''), # End of transmission
-    (b'\x05', ''), # Enquiry
-    (b'\x06', ''), # Acknowledge
-    (b'\x07', ''), # Ring terminal bell
-    (b'\x08', ''), # Backspace
-    (b'\x0b', ''), # Vertical tab
-    (b'\x0c', ''), # Form feed
-    (b'\x0e', ''), # Shift out
-    (b'\x0f', ''), # Shift in
-    (b'\x10', ''), # Data link escape
-    (b'\x11', ''), # Device control 1
-    (b'\x12', ''), # Device control 2
-    (b'\x13', ''), # Device control 3
-    (b'\x14', ''), # Device control 4
-    (b'\x15', ''), # Negative acknowledge
-    (b'\x16', ''), # Synchronous idle
-    (b'\x17', ''), # End of transmission block
-    (b'\x18', ''), # Cancel
-    (b'\x19', ''), # End of medium
-    (b'\x1a', ''), # Substitute character
-    (b'\x1b', ''), # Escape
-    (b'\x1c', ''), # File separator
-    (b'\x1d', ''), # Group separator
-    (b'\x1e', ''), # Record separator
-    (b'\x1f', ''), # Unit separator
+    (b'\x00', b''), # Start of heading
+    (b'\x01', b''), # Start of heading
+    (b'\x02', b''), # Start of text
+    (b'\x03', b''), # End of text
+    (b'\x04', b''), # End of transmission
+    (b'\x05', b''), # Enquiry
+    (b'\x06', b''), # Acknowledge
+    (b'\x07', b''), # Ring terminal bell
+    (b'\x08', b''), # Backspace
+    (b'\x0b', b''), # Vertical tab
+    (b'\x0c', b''), # Form feed
+    (b'\x0e', b''), # Shift out
+    (b'\x0f', b''), # Shift in
+    (b'\x10', b''), # Data link escape
+    (b'\x11', b''), # Device control 1
+    (b'\x12', b''), # Device control 2
+    (b'\x13', b''), # Device control 3
+    (b'\x14', b''), # Device control 4
+    (b'\x15', b''), # Negative acknowledge
+    (b'\x16', b''), # Synchronous idle
+    (b'\x17', b''), # End of transmission block
+    (b'\x18', b''), # Cancel
+    (b'\x19', b''), # End of medium
+    (b'\x1a', b''), # Substitute character
+    (b'\x1b', b''), # Escape
+    (b'\x1c', b''), # File separator
+    (b'\x1d', b''), # Group separator
+    (b'\x1e', b''), # Record separator
+    (b'\x1f', b''), # Unit separator
 )
 
 def sanitize(data):
-    fixed_string = data
+    fixed_string = force_bytes(data)
 
     for bad, good in REPLACEMENTS:
         fixed_string = fixed_string.replace(bad, good)
 
-    return fixed_string
+    return force_unicode(fixed_string)

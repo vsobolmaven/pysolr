@@ -2,12 +2,18 @@
 from __future__ import unicode_literals
 
 import datetime
-from pysolr import Solr, Results, SolrError, unescape_html, safe_urlencode, sanitize, json
+from pysolr import Solr, Results, SolrError, unescape_html, safe_urlencode, \
+                   force_unicode, force_bytes, sanitize, json, ET, IS_PY3
 
 try:
     import unittest2 as unittest
 except ImportError:
     import unittest
+
+try:
+    from urllib.parse import unquote_plus
+except ImportError:
+    from urllib import unquote_plus
 
 
 class UtilsTestCase(unittest.TestCase):
@@ -18,13 +24,22 @@ class UtilsTestCase(unittest.TestCase):
         self.assertEqual(unescape_html('Hello &doesnotexist; world'), 'Hello &doesnotexist; world')
 
     def test_safe_urlencode(self):
-        self.assertEqual(safe_urlencode({'test': 'Hello ☃! Helllo world!'}), 'test=Hello+%E2%98%83%21+Helllo+world%21')
-        self.assertEqual(safe_urlencode({'test': ['Hello ☃!', 'Helllo world!']}), 'test=%5B%27Hello+%5Cxe2%5Cx98%5Cx83%21%27%2C+%27Helllo+world%21%27%5D')
-        self.assertEqual(safe_urlencode({'test': ('Hello ☃!', 'Helllo world!')}), 'test=%5B%27Hello+%5Cxe2%5Cx98%5Cx83%21%27%2C+%27Helllo+world%21%27%5D')
-        self.assertEqual(safe_urlencode({'test': {'Hello': '☃ or world'}}), 'test=%7Bu%27Hello%27%3A+u%27%5Cu2603+or+world%27%7D')
+        self.assertEqual(force_unicode(unquote_plus(safe_urlencode({'test': 'Hello ☃! Helllo world!'}))), 'test=Hello ☃! Helllo world!')
+        self.assertEqual(force_unicode(unquote_plus(safe_urlencode({'test': ['Hello ☃!', 'Helllo world!']}, True))), "test=Hello \u2603!&test=Helllo world!")
+        self.assertEqual(force_unicode(unquote_plus(safe_urlencode({'test': ('Hello ☃!', 'Helllo world!')}, True))), "test=Hello \u2603!&test=Helllo world!")
 
     def test_sanitize(self):
-        self.assertEqual(sanitize(b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19h\x1ae\x1bl\x1cl\x1do\x1e\x1f'), 'hello'),
+        self.assertEqual(sanitize('\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19h\x1ae\x1bl\x1cl\x1do\x1e\x1f'), 'hello'),
+
+    def test_force_unicode(self):
+        self.assertEqual(force_unicode(b'Hello \xe2\x98\x83'), 'Hello ☃')
+        # Don't mangle, it's already Unicode.
+        self.assertEqual(force_unicode('Hello ☃'), 'Hello ☃')
+
+    def test_force_bytes(self):
+        self.assertEqual(force_bytes('Hello ☃'), b'Hello \xe2\x98\x83')
+        # Don't mangle, it's already a bytestring.
+        self.assertEqual(force_bytes(b'Hello \xe2\x98\x83'), b'Hello \xe2\x98\x83')
 
 
 class ResultsTestCase(unittest.TestCase):
@@ -72,11 +87,10 @@ class ResultsTestCase(unittest.TestCase):
     def test_iter(self):
         long_results = Results([{'id': 1}, {'id': 2}, {'id': 3}], 3)
 
-        to_iter = (doc for doc in long_results)
-        self.assertEqual(to_iter.next(), {'id': 1})
-        self.assertEqual(to_iter.next(), {'id': 2})
-        self.assertEqual(to_iter.next(), {'id': 3})
-        self.assertRaises(StopIteration, to_iter.next)
+        to_iter = list(long_results)
+        self.assertEqual(to_iter[0], {'id': 1})
+        self.assertEqual(to_iter[1], {'id': 2})
+        self.assertEqual(to_iter[2], {'id': 3})
 
 
 class SolrTestCase(unittest.TestCase):
@@ -94,7 +108,7 @@ class SolrTestCase(unittest.TestCase):
             },
             {
                 'id': 'doc_2',
-                'title': 'Another example doc 2',
+                'title': 'Another example ☃ doc 2',
                 'price': 13.69,
                 'popularity': 7,
             },
@@ -300,6 +314,18 @@ class SolrTestCase(unittest.TestCase):
         results = self.solr.suggest_terms('title', '')
         self.assertEqual(len(results), 1)
         self.assertEqual(results, {'title': [('doc', 3), ('another', 2), ('example', 2), ('1', 1), ('2', 1), ('boring', 1), ('rock', 1), ('thing', 1)]})
+
+    def test__build_doc(self):
+        doc = {
+            'id': 'doc_1',
+            'title': 'Example doc ☃ 1',
+            'price': 12.59,
+            'popularity': 10,
+        }
+        doc_xml = force_unicode(ET.tostring(self.solr._build_doc(doc), encoding='utf-8'))
+        self.assertTrue('<field name="title">Example doc ☃ 1</field>' in doc_xml)
+        self.assertTrue('<field name="id">doc_1</field>' in doc_xml)
+        self.assertEqual(len(doc_xml), 152)
 
     def test_add(self):
         self.assertEqual(len(self.solr.search('doc')), 3)
