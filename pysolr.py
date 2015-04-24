@@ -964,25 +964,27 @@ class SolrCoreAdmin(object):
         resp = requests.get(url, data=safe_urlencode(params), headers=headers)
         return force_unicode(resp.content)
 
-    def status(self, core=None):
+    def status(self, core=None, **params):
         """http://wiki.apache.org/solr/CoreAdmin#head-9be76f5a459882c5c093a7a1456e98bea7723953"""
-        params = {
+        params = params.copy()
+        params.update({
             'action': 'STATUS',
-        }
+        })
 
         if core is not None:
             params.update(core=core)
 
         return self._get_url(self.url, params=params)
 
-    def create(self, name, instance_dir=None, config='solrconfig.xml', schema='schema.xml'):
+    def create(self, name, instance_dir=None, config='solrconfig.xml', schema='schema.xml', **params):
         """http://wiki.apache.org/solr/CoreAdmin#head-7ca1b98a9df8b8ca0dcfbfc49940ed5ac98c4a08"""
-        params = {
+        params = params.copy()
+        params.update({
             'action': 'CREATE',
             'name': name,
             'config': config,
             'schema': schema,
-        }
+        })
 
         if instance_dir is None:
             params.update(instanceDir=name)
@@ -991,41 +993,45 @@ class SolrCoreAdmin(object):
 
         return self._get_url(self.url, params=params)
 
-    def reload(self, core):
+    def reload(self, core, **params):
         """http://wiki.apache.org/solr/CoreAdmin#head-3f125034c6a64611779442539812067b8b430930"""
-        params = {
+        params = params.copy()
+        params.update({
             'action': 'RELOAD',
             'core': core,
-        }
+        })
         return self._get_url(self.url, params=params)
 
-    def rename(self, core, other):
+    def rename(self, core, other, **params):
         """http://wiki.apache.org/solr/CoreAdmin#head-9473bee1abed39e8583ba45ef993bebb468e3afe"""
-        params = {
+        params = params.copy()
+        params.update({
             'action': 'RENAME',
             'core': core,
             'other': other,
-        }
+        })
         return self._get_url(self.url, params=params)
 
-    def swap(self, core, other):
+    def swap(self, core, other, **params):
         """http://wiki.apache.org/solr/CoreAdmin#head-928b872300f1b66748c85cebb12a59bb574e501b"""
-        params = {
+        params = params.copy()
+        params.update({
             'action': 'SWAP',
             'core': core,
             'other': other,
-        }
+        })
         return self._get_url(self.url, params=params)
 
-    def unload(self, core):
+    def unload(self, core, **params):
         """http://wiki.apache.org/solr/CoreAdmin#head-f5055a885932e2c25096a8856de840b06764d143"""
-        params = {
+        params = params.copy()
+        params.update({
             'action': 'UNLOAD',
             'core': core,
-        }
+        })
         return self._get_url(self.url, params=params)
 
-    def load(self, core):
+    def load(self, core, **params):
         raise NotImplementedError('Solr 1.4 and below do not support this operation.')
 
 
