@@ -1035,6 +1035,51 @@ class SolrCoreAdmin(object):
         raise NotImplementedError('Solr 1.4 and below do not support this operation.')
 
 
+class SolrSchemaAdmin(object):
+    """
+    Handles schema admin operations:
+    see http://wiki.apache.org/solr/SchemaRESTAPI
+
+    Operations offered by Solr are:
+        * Modify the Schema (not implemented yet)
+          * Add a New Field (not implemented yet)
+          * Add a New Copy Field Rule (not implemented yet)
+          * Add a Dynamic Field Rule (not implemented yet)
+          * Add a New Field Type (not implemented yet)
+          * Multiple Commands in a Single POST (not implemented yet)
+          * Schema Changes among Replicas (not implemented yet)
+        * Retrieve Schema Information
+          * Retrieve the Entire Schema (not implemented yet)
+          * List Fields
+          * List Dynamic Fields (not implemented yet)
+          * List Field Types (not implemented yet)
+          * List Copy Fields (not implemented yet)
+          * Show Schema Name (not implemented yet)
+          * Show the Schema Version (not implemented yet)
+          * List UniqueKey (not implemented yet)
+          * Show Global Similarity (not implemented yet)
+          * Get the Default Query Operator (not implemented yet)
+    """
+    def __init__(self, url, *args, **kwargs):
+        super(SolrSchemaAdmin, self).__init__(*args, **kwargs)
+        self.url = url
+        self.decoder = json.JSONDecoder()
+
+    def _get_url(self, url, params={}, headers={}):
+        resp = requests.get(url, params=safe_urlencode(params), headers=headers)
+        return force_unicode(resp.content)
+
+    def list_fields(self, collection, fieldname=None, **params):
+        """
+        https://cwiki.apache.org/confluence/display/solr/Schema+API#SchemaAPI-ListFields
+        """
+        url = '{}/{}/schema/fields'.format(self.url, collection)
+        if fieldname:
+            url = '{}/{}'.format(url, fieldname)
+        response = self._get_url(url, params=params)
+        return self.decoder.decode(response)
+
+
 # Using two-tuples to preserve order.
 REPLACEMENTS = (
     # Nuke nasty control characters.
