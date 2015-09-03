@@ -1205,6 +1205,10 @@ class Zookeeper:
                 self.aliases = None
             LOG.info("Updated aliases")
 
+    def __del__(self):
+        self.close()
+        return super(Zookeeper, self).__del__()
+
     def close(self):
         self.zk.close()
 
