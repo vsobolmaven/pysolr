@@ -27,7 +27,8 @@ setup(
     url='http://github.com/toastdriven/pysolr/',
     license='BSD',
     install_requires=[
-        'requests>=2.0'
+        'requests>=2.0',
+        'kazoo==2.0',
     ],
     extras_require={
         'tomcat': [

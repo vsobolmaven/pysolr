@@ -23,7 +23,7 @@ Features
 * `"More Like This" <http://wiki.apache.org/solr/MoreLikeThis>`_ support (if set up in Solr).
 * `Spelling correction <http://wiki.apache.org/solr/SpellCheckComponent>`_ (if set up in Solr).
 * Timeout support.
-
+* SolrCloud awareness
 
 Requirements
 ============
@@ -33,7 +33,7 @@ Requirements
 * **Optional** - ``lxml``
 * **Optional** - ``simplejson``
 * **Optional** - ``cssselect`` for Tomcat error support
-
+* **Optional** - ``kazoo`` for SolrCloud mode
 
 Installation
 ============
@@ -68,6 +68,9 @@ Basic usage looks like:
         },
     ])
 
+    # You can optimize the index when it gets fragmented, for better speed.
+    solr.optimize()
+
     # Later, searching is easy. In the simple case, just a plain Lucene-style
     # query is fine.
     results = solr.search('bananas')
@@ -97,6 +100,12 @@ Basic usage looks like:
 
     # ...or all documents.
     solr.delete(q='*:*')
+
+.. code-block:: python
+    # For SolrCloud mode, initialize your Solr like this:
+    
+    zookeeper = pysolr.Zookeeper("zkhost1:2181,zkhost2:2181,zkhost3:2181")
+    solr = pysolr.SolrCloud(zookeeper, "collection1")
 
 
 LICENSE
