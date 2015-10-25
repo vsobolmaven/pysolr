@@ -30,9 +30,7 @@ Requirements
 
 * Python 2.6 - 3.3
 * Requests 2.0+
-* **Optional** - ``lxml``
 * **Optional** - ``simplejson``
-* **Optional** - ``cssselect`` for Tomcat error support
 
 
 Installation
@@ -116,7 +114,7 @@ Running a test Solr instance
 
 Downloading, configuring and running Solr 4 looks like this::
 
-    ./start-test-solr.sh
+    ./start-solr-test-server.sh
 
 Running the tests
 ~~~~~~~~~~~~~~~~~

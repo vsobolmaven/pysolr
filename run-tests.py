@@ -10,7 +10,7 @@ import requests
 
 
 def start_solr():
-    solr_proc = subprocess.Popen("./start-test-solr.sh",
+    solr_proc = subprocess.Popen("./start-solr-test-server.sh",
                                  stdout=open("test-solr.stdout.log", "wb"),
                                  stderr=open("test-solr.stderr.log", "wb"))
 
@@ -39,10 +39,8 @@ def start_solr():
 def main():
     solr_proc = start_solr()
 
-    if sys.version_info >= (3, 3):
+    if sys.version_info >= (3, 3) or sys.version_info >= (2, 7):
         cmd = ['python', '-m', 'unittest', 'tests']
-    elif sys.version_info >= (2, 7):
-        cmd = ['python', '-m', 'unittest2', 'tests']
     else:
         cmd = ['unit2', 'discover', '-s', 'tests', '-p', '[a-z]*.py']
 
